@@ -1,0 +1,191 @@
+// Dynamic Footer
+// Takes initialization arguments to construct data source request
+// Renders HTML output onto page
+// Config:
+//    0) country
+//    1) Source CDN
+//    2) Element ID
+//    3) New Tab
+//    4) CSS class
+//    5) Mode
+
+var DYNAMIC_FOOTER = DYNAMIC_FOOTER || (function(){
+    var version = "1.1";
+    var lang = "";      // language
+    var cdn = "";       // CDN hosting the json data
+    var dataUri = "";   // final uri of data to be pulled
+    var country = "";   // country based on CloudFront IP detection
+    var region = "";    // region mapping based on country received
+    var element = "";   // DOM element to inject the footer
+    var css = "";       // custom CSS Class if provided
+    var newTab = false; // open links in new tab
+    var mode = "replace"; // mode; Replace, Append or Prepend
+    var jsondata = "";  // actual json data pulled by request
+    var embargoed =     ["CU","IR","KP","SD","SY"]; // Embargoed - no footer
+    var region_aunz =   ["AU","CC","CK","CX","HM","NF","NU","NZ","TK"]; // Region : AU / NZ
+    var region_emea =   ["AD","AL","AT","AX","BA","BE","BV","CH","CY","EE","FO","GB","GG","GI","HR","IE","IM","IS","JE","LI",
+                         "LT","LU","LV","MC","MD","ME","MK","MT","RS","SI","SJ","SK","SM","UA","UK","VA","XK","CS","FX","YU",
+                         "AI","AW","BL","BM","BQ","CW","FK","GF","GL","GP","GS","IO","KY","MF","MQ","MS","NC","PF","PM","PN",
+                         "RE","SH","SX","TC","TF","VG","WF","YT","AN"]; // Region : EMEA
+    var region_latam =  ["AR","BO","BZ","CL","CO","CR","EC","GT","GY","HN","MX","NI","PA","PE","PY","SR","SV","UY","VE"]; // Region : Latin America
+    var region_us =     ["AS","GU","MP","PR","UM","US","VI"]; // Region : United States
+    var region_custom = ["BG","BR","CA","CZ","DE","DK","ES","FI","FR","GR","HU","ID","IL","IN","IT","JP","MY","NL","NO","PH",
+                         "PL","PT","RO","SA","SE","SG","TH","TR"]; // Individual custom footers
+
+
+    return {
+        init : function(config) {
+            this.buildConfig(config);
+            if (this.validate()) {
+                this.getData();
+            }
+        },
+        buildConfig : function(config) {
+            this.setCountry(config);
+            this.setCdn(config);
+            this.setElement(config);
+            this.setNewTab(config);
+            this.setCss(config);
+            this.setMode(config);
+            this.setLanguage();
+            this.setRegion();
+            this.setDataUri();
+        },
+        setCountry : function(config) {
+            country = config[0];
+        },
+        setCdn : function(config) {
+            cdn = config[1];
+        },
+        setElement : function(config) {
+            const id = config[2];
+            element = document.getElementById(id);
+        },
+        setNewTab : function(config) {
+            newTab = config[3] === "true" ? true : false;
+        },
+        setCss : function(config) {
+            css = config[4];
+        },
+        setMode : function(config) {
+            mode = config[5];
+        },
+        setLanguage : function() {
+            var language = document.documentElement.lang;
+            if (language == null) {
+                lang = "en";
+            } else {
+                lang = language.split('-')[0];
+            }
+        },
+        setRegion : function() {
+            if (embargoed.includes(country)) { 
+                region = "embargoed"; 
+            } else if (region_aunz.includes(country)) { 
+                region = "aunz"; 
+            } else if (region_emea.includes(country)) { 
+                region = "emea"; 
+            } else if (region_latam.includes(country)) { 
+                region = "latam"; 
+            } else if (region_us.includes(country)) { 
+                region = "us"; 
+            } else if (region_custom.includes(country)) { 
+                region = country.toLowerCase(); 
+            } else { 
+                region = "rotw"; 
+            }
+        },
+        setDataUri : function() {
+            dataUri = cdn + region + "/data.json?v=" + version;
+        },
+        getData : function() {
+            fetch(dataUri)
+                .then((response) => response.json())
+                .then((json) => this.setData(json))
+                .catch((err) => this.log("Fetch Error: " + err));
+        },
+        setData : function(data) {
+            jsondata = data;
+            this.render();
+        },
+        validate : function() {
+            if (country === "" || 
+                region === "" || 
+                dataUri === "" || 
+                cdn === "" || 
+                lang === "" || 
+                element === "") {
+                return false;
+            }
+            if (region === "embargoed") {
+                element.innerHTML = "";
+                return false;
+            }
+            return true;
+        },
+        render : function() {
+            const dataByLanguage = this.getDataByLanguage();
+            if (typeof(element) != 'undefined' && element != null)
+            {
+                if (css !== "") {
+                    element.classList.add(css);
+                }
+                var content = "";
+                for (var i=0; i<dataByLanguage.length; i++) {
+                    var cssClass = dataByLanguage[i].css !== undefined & dataByLanguage[i].css !== null ? " class='" + dataByLanguage[i].css + "'" : "";
+                    var target = (!newTab || dataByLanguage[i].css === "df-privacy-compliance") ? "" : " target='_blank'"
+                    content += "<li class='menu-item menu-item-type-custom menu-item-object-custom'>";
+                    content += "<a href='" + dataByLanguage[i].url + "' " + target + cssClass + ">" + dataByLanguage[i].label + "</a>";
+                    content += "</li>";
+                }
+                if (mode === "replace") {
+                    element.innerHTML = content;
+                } else if (mode === "append") {
+                    element.innerHTML = content + element.innerHTML;
+                } else if (mode === "prepend") {
+                    element.innerHTML += content;
+                }
+
+            } else {
+                this.log("Couldn't find DOM element");
+            }
+        },
+        getDataByLanguage : function() {
+            // TODO :: Phase 1 only English
+            var idx = this.getJsonIndex(jsondata.langs, lang);
+            if (idx === -1) {
+                idx = 0;
+            }
+            var data = jsondata.langs[idx]            
+            var vals = Object.values(data);
+            return vals[0];
+        },
+        getJsonIndex : function(data, value) {
+            var idx = -1;
+            for (let i = 0; i < data.length; i++) {
+                idx += 1;
+                var keys = Object.keys(data[i]);
+                if (keys[0] === value) {
+                    return i;
+                }
+            }
+            return idx;
+        },
+        getLocalStorageKey : function() {
+            return "dynamic-footer-" + region + "-" + version;
+        },
+        debug : function(testCountry, testLanguage) {
+            this.log("country: " + country);
+            this.log("language: " + lang);
+            this.log("region: " + region);
+            this.log("data source: " + dataUri);
+            this.log("css: " + css);
+            this.log("mode: " + mode);
+        },
+        log : function(msg) {
+            if (console !== null && console !== undefined && msg !== undefined) {
+                console.log("DYNAMIC_FOOTER :: " + msg);
+            }
+        }
+    };
+}());
